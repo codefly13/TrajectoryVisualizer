@@ -174,16 +174,30 @@ exposes an `export` command that writes trajectory JSON to stdout.
    python scripts/opencode_consolidator.py <session-id> op_trajectory.json
    ```
    The consolidator follows tool-call metadata to discover child session IDs
-   and emits a flat `{"sessions": [...]}` structure that the loader threads
-   into a single trajectory.
+   and emits a flat `info` + `messages` structure that the loader threads into
+   a single trajectory.
 4. Upload `op_trajectory.json` in the Insight dashboard. The loader detects the
    `info` + `messages` shape automatically; sub-agent sessions are threaded in.
 
 ### CodeArts
 
-A CodeArts session is a **folder**, not a single file. Each session directory
-must contain **both** of the following files for the consolidator to pick it
-up:
+Current CodeArts AgentKernel builds persist sessions in `opencode.db`. Export a
+root session and all child/sub-agent sessions with the read-only v2 helper:
+
+```bash
+python scripts/codearts_consolidator_v2.py path/to/opencode.db \
+  --session-id <session-id> --output ca_trajectory.json
+```
+
+The v2 helper follows both `session.parent_id` and tool-result session metadata,
+preserves stored token dictionaries and precise part timing, and emits the
+`info` + `messages` shape detected by the dashboard. Pass `--no-children` only
+when a root-only export is intentional. A bare session ID can also be used when
+`CODEARTS_DATABASE` or `OPENCODE_DATABASE` points at the database.
+
+Older CodeArts builds store a session as a **folder**. Each session directory
+must contain `chat_baseInfo.json` and at least `messages_0.json`; v2 merges every
+available numeric shard (`messages_0.json`, `messages_1.json`, ...):
 
 - `chat_baseInfo.json` — session metadata (title, chatId, timestamp, agent info)
 - `messages_0.json` — the raw message list
@@ -192,13 +206,14 @@ TrajectoryVisualizer expects a single consolidated JSON, so use the helper in
 `scripts/` (run from the repo root):
 
 ```bash
-# Single session — pick the output path yourself
-python scripts/codearts_consolidator.py path/to/<session-id> --output ca_trajectory.json
+# Legacy folder — pick the output path yourself
+python scripts/codearts_consolidator_v2.py path/to/<session-id> --output ca_trajectory.json
 ```
 
-The consolidator wraps `chat_baseInfo.json` + `messages_0.json` into a single
-JSON with `"format": "codearts"` at the top level. Upload the consolidated
-file in the dashboard.
+The legacy output uses `"format": "codearts"` at the top level. Upload either
+kind of consolidated file in the dashboard. The original
+`codearts_consolidator.py` remains available for reproducibility, but only reads
+`messages_0.json`.
 
 ### Training Conversation
 
@@ -224,6 +239,7 @@ Helper utilities that live in `scripts/` (run from the repo root):
 | File | Purpose |
 |---|---|
 | `codearts_consolidator.py` | Merge a CodeArts session folder (`chat_baseInfo.json` + `messages_0.json`) into a single consolidated JSON. Single-session and `--batch` modes. See the **CodeArts** collection section above. |
+| `codearts_consolidator_v2.py` | Read-only export from current `opencode.db` with recursive child sessions, or lossless merge of every legacy `messages_<n>.json` shard. |
 | `opencode_consolidator.py` | Recursively merge an OpenCode parent session and child sub-agent sessions into a single JSON. See the **OpenCode** collection section above. |
 | `step_labeler.py` | LLM-based per-step classifier. Reads a trajectory and emits a sidecar `*_labeled.json` with phase and action tags from the taxonomy. |
 | `training_labeler.py` | LLM-based training-turn labeler. Reads a training conversation and emits a `trajectory_labels.v2` sidecar with behavior, quality, value, and deterministic keep/review/drop decisions. |
@@ -317,6 +333,7 @@ TrajectoryVisualizer/
 │       └── rendering.py         # Comparison HTML report
 ├── scripts/                     # Trajectory helpers
 │   ├── codearts_consolidator.py # CodeArts session → single JSON
+│   ├── codearts_consolidator_v2.py # Current DB + complete legacy shard export
 │   ├── opencode_consolidator.py # OpenCode parent + sub-agent sessions → single JSON
 │   ├── step_labeler.py          # LLM-based step classifier
 │   ├── training_labeler.py      # LLM-based training-turn labeler

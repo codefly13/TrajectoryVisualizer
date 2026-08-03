@@ -627,6 +627,39 @@ def extract_subagent_sessions(
                             break
                     break
 
+        # OpenCode/AgentKernel records the spawned child session on the parent
+        # task tool part rather than in subAgentMsgList.  Use that canonical
+        # link as a fallback so consolidated CodeArts v2 exports can identify
+        # the actual delegation step.
+        if session["spawn_step"] is None:
+            for step in steps:
+                raw_idx = step.get("raw_index")
+                if not isinstance(raw_idx, int) or not (0 <= raw_idx < len(trajectory)):
+                    continue
+                entry = trajectory[raw_idx]
+                parts = entry.get("parts", []) if isinstance(entry, dict) else []
+                if not isinstance(parts, list):
+                    continue
+                matched = False
+                for part in parts:
+                    if not isinstance(part, dict) or part.get("type") != "tool":
+                        continue
+                    state = part.get("state", {})
+                    metadata = state.get("metadata", {}) if isinstance(state, dict) else {}
+                    if not isinstance(metadata, dict):
+                        continue
+                    child_id = (
+                        metadata.get("sessionId")
+                        or metadata.get("sessionID")
+                        or metadata.get("session_id")
+                    )
+                    if child_id == session["session_id"]:
+                        session["spawn_step"] = step.get("index", 0)
+                        matched = True
+                        break
+                if matched:
+                    break
+
     return sessions
 
 
